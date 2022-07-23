@@ -11,8 +11,8 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true,
-            //"args": ["--target", "https://google.com", "--sockets", "2", "-m", "RAND", "tor", "-w", "luki123*"]
-            "args": ["--target", "https://google.com", "--sockets", "2", "-m", "RAND"]
+            "args": ["--target", "https://google.com", "--sockets", "2", "-m", "RAND", "tor", "-w", ""]
+            //"args": ["--target", "https://google.com", "--sockets", "2", "-m", "RAND"]
         }
     ]
 }

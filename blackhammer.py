@@ -116,7 +116,7 @@ class ATACMS(object):
 
             self.connected = True
 
-        except OSError as e:
+        except Exception as e:
             self.connected = False
             logging.debug(f'{e}')
             # raise e
@@ -132,8 +132,9 @@ class ATACMS(object):
             self.ssl = None
 
         if self.socket is not None:
-            self.socket.shutdown(socket.SHUT_RDWR)
-            self.socket.close()
+            if not self.socket._closed:
+                self.socket.shutdown(socket.SHUT_RDWR)
+                self.socket.close()
             self.socket = None
 
         self.connected = False
@@ -343,7 +344,7 @@ class ATACMS(object):
 
                 return True
 
-        except OSError as e:
+        except Exception as e:
             self._disconnect()
             self.connected = False
             logging.debug(f'{e}')
@@ -365,7 +366,15 @@ class HIMARS(Process):
         
     def _prepare_atacms(self, ):
         for _ in range(self.args.sockets):
-            a = ATACMS(self.args.target, self.args.port, self.args.ssl, self.args.tor_ip, self.args.tor_port, self.args.tor_password)
+
+            a = ATACMS(
+                host=self.args.target, 
+                port=self.args.port, 
+                method=self.args.method,
+                use_ssl=self.args.ssl, 
+                tor_ip=self.args.tor_ip, 
+                tor_port=self.args.tor_port, 
+                tor_password=self.args.tor_password)
             self.atacms.append(a)
 
 
