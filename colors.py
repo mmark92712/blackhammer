@@ -23,3 +23,7 @@ class Colors:
         if newline:
             print(color + message + Colors.creset)
         else: print(color + "\r\t" + message + Colors.creset, end="")
+
+    @staticmethod
+    def debug(caller:str, msg:str):
+        print(f'In {Colors.cwarning}{caller}{Colors.creset}: {msg}.')
