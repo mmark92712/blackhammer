@@ -3,6 +3,4 @@ DoS script based on torshammer and blackhorizon
 
 # Important notice
 
-Go to dev branch.
-
-This is work in progress. The script is not working. Will be updated with a working version soon.
+This is work in progress. Ready to be tested and debugged.
