@@ -6,20 +6,22 @@ class Colors:
     cwarning =      "\033[38;5;209m"
     creset =        "\033[0m"
 
-    @staticmethod
-    def info(message: str, newline=True):
-        Colors._print(Colors.cinfo, message, newline)
 
     @staticmethod
-    def error(message: str, newline=True):
-        Colors._print(Colors.cerror, message, newline)
-    
-    @staticmethod
-    def warn(message: str, newline=True):
-        Colors._print(Colors.cwarning, message, newline)
+    def debug(caller:str, msg:str):
+        print(f'In {Colors.cwarning}{caller}{Colors.creset}: {msg}')
+
 
     @staticmethod
-    def _print(color, message, newline):
-        if newline:
-            print(color + message + Colors.creset)
-        else: print(color + "\r\t" + message + Colors.creset, end="")
+    def info(msg:str):
+        print(f'{Colors.cinfo}INFO: {Colors.creset}{msg}')
+
+
+    @staticmethod
+    def warn(msg:str):
+        print(f'{Colors.cwarning}WARN: {Colors.creset}{msg}')
+
+
+    @staticmethod
+    def error(msg:str):
+        print(f'{Colors.cerror}ERROR: {Colors.creset}{msg}')
