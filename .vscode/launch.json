@@ -11,8 +11,8 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["--target", "https://net.hr", "--threads", "1", "tor", "-s", ""]
-            //"args": ["--target", "https://google.com", "--sockets", "2", "-m", "RAND"]
+            "args": ["--target", "https://net.hr", "--threads", "1", "tor", "-s", "eh-K932kd_0183bvtGH"]
+            //"args": ["https://net.hr:443", "-s", "1", "-c", "1"]
         }
     ]
 }

