@@ -1,4 +1,0 @@
-2022-07-18 20:36:05,980 - root - DEBUG -  * Thread: Thread-1: Trying to connect via tor. host: beerunion.ru port: 80
-2022-07-18 20:36:30,542 - root - DEBUG -  * Thread: Thread-1: Trying to connect via tor. host: beerunion.ru port: 80
-2022-07-18 20:37:56,731 - root - DEBUG -  * Thread: Thread-1: Trying to connect via tor. host: beerunion.ru port: 80
-2022-07-18 20:38:50,191 - root - DEBUG -  * Thread: Thread-1: Trying to connect via tor. host: beerunion.ru port: 80
